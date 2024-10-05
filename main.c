@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h> // for getopt_long
+#include <inttypes.h>
+
 
 #define BUFFER_SIZE 4096 * 10
 
@@ -314,7 +316,7 @@ int expandIPv6CIDR(struct in6_addr ip, int prefixLen, int includeIPv6) {
   uint64_t total_addresses = 1ULL << (128 - prefixLen);
   if (total_addresses > V6_MAX_ADDRS) {
     total_addresses = V6_MAX_ADDRS;
-    fprintf(stderr, "Limiting to %llu addresses\n", total_addresses);
+    fprintf(stderr, "Limiting to %" PRIu64 " addresses\n", total_addresses);
   }
 
   // Apply netmask to the IP address

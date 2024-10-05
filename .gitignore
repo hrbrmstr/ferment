@@ -70,3 +70,4 @@ ferment
 sensor-ips.txt
 test.out
 correct-output.txt
+bin/
