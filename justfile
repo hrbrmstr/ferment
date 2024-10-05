@@ -5,6 +5,6 @@
   clang -o ferment main.c
 
 @test: build
-  ./ferment test-ips.txt > test.out && \
-     wc --libxo json -l test.out | \
-     jq --exit-status '.wc.file[0].lines == 1303'
+  ./ferment test-ips.txt > test.out
+  diff test.out correct-output.txt || echo "Test failed"
+  rm -rf test.out

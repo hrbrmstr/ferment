@@ -7,6 +7,13 @@
 #include <string.h>
 #include <unistd.h> // for getopt_long
 
+#define BUFFER_SIZE 4096 * 10
+
+#define BATCH_SIZE 1024
+#define V4_BUFFER_SIZE (16 * BATCH_SIZE * 1024)
+#define V6_BUFFER_SIZE (INET6_ADDRSTRLEN * BATCH_SIZE)
+#define V6_MAX_ADDRS 1000000
+
 void printUsage();
 int processInput(FILE *inputFile, int includeIPv4, int includeIPv6);
 int printIPsFromLine(char *line, int includeIPv4, int includeIPv6);
@@ -19,6 +26,7 @@ int isIPv6AddressBeyondPrefix(struct in6_addr *current_ip,
                               struct in6_addr *network, int prefixLen);
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IONBF, 0);
   int opt;
   int includeIPv4 = 0, includeIPv6 = 0;
   int help = 0;
@@ -94,7 +102,7 @@ void printUsage() {
 }
 
 int processInput(FILE *inputFile, int includeIPv4, int includeIPv6) {
-  char line[256];
+  char line[BUFFER_SIZE];
   while (fgets(line, sizeof(line), inputFile)) {
     // Remove trailing newline
     line[strcspn(line, "\n")] = '\0';
@@ -127,9 +135,7 @@ int printIPsFromLine(char *line, int includeIPv4, int includeIPv6) {
   if (inet_pton(AF_INET, line, &ipv4addr) == 1) {
     // It's an IPv4 address
     if (includeIPv4) {
-      char ipStr[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &ipv4addr, ipStr, sizeof(ipStr));
-      printf("%s\n", ipStr);
+      printf("%s\n", line);
     }
     return 0;
   }
@@ -138,9 +144,9 @@ int printIPsFromLine(char *line, int includeIPv4, int includeIPv6) {
   if (inet_pton(AF_INET6, line, &ipv6addr) == 1) {
     // It's an IPv6 address
     if (includeIPv6) {
-      char ipStr[INET6_ADDRSTRLEN];
-      inet_ntop(AF_INET6, &ipv6addr, ipStr, sizeof(ipStr));
-      printf("%s\n", ipStr);
+      if (includeIPv4) {
+        printf("%s\n", line);
+      }
     }
     return 0;
   }
@@ -179,26 +185,65 @@ int printIPsFromLine(char *line, int includeIPv4, int includeIPv6) {
   return 0;
 }
 
+static char *ipv4ToString(uint32_t ip, char *buffer) {
+  unsigned char bytes[4];
+  bytes[0] = ip & 0xFF;
+  bytes[1] = (ip >> 8) & 0xFF;
+  bytes[2] = (ip >> 16) & 0xFF;
+  bytes[3] = (ip >> 24) & 0xFF;
+  sprintf(buffer, "%d.%d.%d.%d", bytes[3], bytes[2], bytes[1], bytes[0]);
+  return buffer;
+}
+
 int expandIPv4CIDR(struct in_addr ip, int prefixLen, int includeIPv4) {
   if (!includeIPv4)
     return 0;
 
-  uint32_t ipaddr = ntohl(ip.s_addr);
-  uint32_t netmask = (0xFFFFFFFF << (32 - prefixLen)) & 0xFFFFFFFF;
-  uint32_t network = ipaddr & netmask;
-  uint32_t broadcast = network | (~netmask & 0xFFFFFFFF);
+  static char *buffer = NULL;
+  if (buffer == NULL) {
+    buffer = malloc(BUFFER_SIZE);
+    if (buffer == NULL) {
+      fprintf(stderr, "Failed to allocate memory\n");
+      return -1;
+    }
+  }
 
-  char ipStr[INET_ADDRSTRLEN];
+  uint32_t ipaddr = ntohl(ip.s_addr);
+  uint32_t netmask = (0xFFFFFFFFU << (32 - prefixLen)) & 0xFFFFFFFFU;
+  uint32_t network = ipaddr & netmask;
+  uint32_t broadcast = network | (~netmask & 0xFFFFFFFFU);
 
   uint32_t num_addresses = broadcast - network + 1;
+  char ip_buffer[16]; // Temporary buffer for a single IP
+  char *buf_ptr = buffer;
+  size_t total_written = 0;
 
-  for (uint32_t i = 0; i < num_addresses; i++) {
-    uint32_t addr = network + i;
-    struct in_addr current_ip;
-    current_ip.s_addr = htonl(addr);
-    inet_ntop(AF_INET, &current_ip, ipStr, sizeof(ipStr));
-    printf("%s\n", ipStr);
+  for (uint32_t addr = network; addr <= broadcast; addr++) {
+    ipv4ToString(addr, ip_buffer);
+    int len = strlen(ip_buffer);
+
+    if (buf_ptr - buffer + len + 1 >= BUFFER_SIZE) {
+      // Buffer is full, write it out
+      fwrite(buffer, 1, buf_ptr - buffer, stdout);
+      total_written += buf_ptr - buffer;
+      buf_ptr = buffer;
+    }
+
+    memcpy(buf_ptr, ip_buffer, len);
+    buf_ptr += len;
+    *buf_ptr++ = '\n';
   }
+
+  // Write any remaining data
+  if (buf_ptr > buffer) {
+    fwrite(buffer, 1, buf_ptr - buffer, stdout);
+    total_written += buf_ptr - buffer;
+  }
+
+  // For benchmarking, you might want to return the number of bytes written
+  // instead of actually writing to stdout
+  // return total_written;
+
   return 0;
 }
 
@@ -265,32 +310,44 @@ int expandIPv6CIDR(struct in6_addr ip, int prefixLen, int includeIPv6) {
   if (!includeIPv6)
     return 0;
 
-  // Apply netmask to the IP address
-  struct in6_addr network;
-  applyIPv6Netmask(&ip, &network, prefixLen);
+  // Calculate total addresses in this prefix
+  uint64_t total_addresses = 1ULL << (128 - prefixLen);
+  if (total_addresses > V6_MAX_ADDRS) {
+    total_addresses = V6_MAX_ADDRS;
+    fprintf(stderr, "Limiting to %llu addresses\n", total_addresses);
+  }
 
-  // Define the maximum number of addresses to prevent infinite loops
-  uint64_t max_addresses = 1000000;
+  // Apply netmask to the IP address
+  for (int i = prefixLen; i < 128; i++) {
+    int byte = i / 8;
+    int bit = 7 - (i % 8);
+    ip.s6_addr[byte] &= ~(1 << bit);
+  }
+
+  char buffer[V6_BUFFER_SIZE];
+  char *buf_ptr = buffer;
   uint64_t count = 0;
 
-  struct in6_addr current_ip;
-  memcpy(&current_ip, &network, sizeof(struct in6_addr));
+  while (count < total_addresses) {
+    for (int i = 0; i < BATCH_SIZE && count < total_addresses; i++, count++) {
+      inet_ntop(AF_INET6, &ip, buf_ptr, INET6_ADDRSTRLEN);
+      buf_ptr += strlen(buf_ptr);
+      *buf_ptr++ = '\n';
 
-  char ipStr[INET6_ADDRSTRLEN];
-  do {
-    inet_ntop(AF_INET6, &current_ip, ipStr, sizeof(ipStr));
-    printf("%s\n", ipStr);
-    count++;
-    if (count >= max_addresses) {
-      fprintf(stderr, "Reached maximum number of addresses (%llu), stopping\n",
-              max_addresses);
-      break;
+      // Increment IP address
+      int j;
+      for (j = 15; j >= 0; j--) {
+        if (++ip.s6_addr[j] != 0)
+          break;
+      }
+      if (j < 0)
+        break; // Overflow, we're done
     }
-    if (incrementIPv6Address(&current_ip) != 0) {
-      // Reached the end of address space
-      break;
-    }
-  } while (!isIPv6AddressBeyondPrefix(&current_ip, &network, prefixLen));
+
+    // Write batch to stdout
+    fwrite(buffer, 1, buf_ptr - buffer, stdout);
+    buf_ptr = buffer;
+  }
 
   return 0;
 }
