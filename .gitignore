@@ -71,3 +71,26 @@ sensor-ips.txt
 test.out
 correct-output.txt
 bin/
+###---------------###
+###  TopTal: Zig  ###
+###---------------###
+
+# Created by https://www.toptal.com/developers/gitignore/api/Zig
+# Edit at https://www.toptal.com/developers/gitignore?templates=Zig
+
+### zig ###
+# Zig programming language
+
+zig-cache/
+zig-out/
+build/
+build-*/
+docgen_tmp/
+
+# End of https://www.toptal.com/developers/gitignore/api/Zig
+
+###---------------###
+###  GitHub: Zig  ###
+###---------------###
+
+.zig-cache/
