@@ -17,7 +17,7 @@
 Binary CLI releases for
 
 - macOS Universal
-- Linux x86_64, and
+- Linux amd64, and
 - Linux aarch64
 
 are available in the release artifacts.

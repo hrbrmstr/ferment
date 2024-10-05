@@ -11,8 +11,8 @@
   lipo -create -output bin/ferment-darwin-universal bin/ferment-darwin-x86_64 bin/ferment-darwin-aarch64
   codesign --force --verify --verbose --sign "${APPLE_DEV_ID}" bin/ferment-darwin-universal
   zig build
-  zip bin/ferment-darwin-x86_64.zip bin/ferment-darwin-x86_64
-  zip bin/ferment-darwin-aarch64.zip bin/ferment-darwin-aarch64
+  zip bin/ferment-linux-x86_64.zip bin/ferment-linux-amd64
+  zip bin/ferment-linux-aarch64.zip bin/ferment-linux-aarch64
   zip bin/ferment-darwin-universal.zip bin/ferment-darwin-universal
 
 
