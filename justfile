@@ -2,7 +2,7 @@
   clang-format -i main.c
 
 @build:
-  clang -o ferment main.c
+  clang -O3 -o ferment main.c
 
 @test: build
   ./ferment test-ips.txt > test.out

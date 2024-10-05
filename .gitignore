@@ -68,6 +68,5 @@ dkms.conf
 .DS_Store
 ferment
 sensor-ips.txt
-test-ips.txt
 test.out
 correct-output.txt
