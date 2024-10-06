@@ -187,7 +187,7 @@ int printIPsFromLine(char *line, int includeIPv4, int includeIPv6) {
   return 0;
 }
 
-static char *ipv4ToString(uint32_t ip, char *buffer) {
+static inline char *ipv4ToString(uint32_t ip, char *buffer) {
   unsigned char bytes[4];
   bytes[0] = ip & 0xFF;
   bytes[1] = (ip >> 8) & 0xFF;
